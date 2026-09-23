@@ -329,21 +329,6 @@ def main(page: ft.Page):
     selected_photo_bytes = {"value": None}
     current_poster = {"path": None, "bytes": None}
 
-    # ---------------- وضعیت برش عکس ۳×۴ ----------------
-    crop_state = {
-        "original_bytes": None,
-        "source_image": None,
-        "center_x": 0.0,
-        "center_y": 0.0,
-        "zoom": 1.0,
-        "pinch_start_zoom": 1.0,
-        "pinch_start_center_x": 0.0,
-        "pinch_start_center_y": 0.0,
-        "pinch_start_crop_w": 0.0,
-        "pinch_start_crop_h": 0.0,
-        "scale_active": False,
-    }
-
     def border_style():
         return {
             ft.ControlState.DEFAULT: ft.OutlineInputBorder(
@@ -518,88 +503,6 @@ def main(page: ft.Page):
         current_poster["path"] = None
         current_poster["bytes"] = None
 
-    # ========================================================
-    # پیش‌نمایش زنده — بدون فایل موقت
-    # ========================================================
-    def render_live_preview():
-        try:
-            data = {
-                "number": txt_number.value or "",
-                "title": txt_title.value or "",
-                "subject": txt_subject.value or "",
-                "presenter": txt_presenter.value or "",
-                "date": txt_date.value or "",
-            }
-
-            image = Image.open(template_path).convert("RGBA")
-            draw = ImageDraw.Draw(image)
-
-            font_number = load_font(str(font_path), 43)
-            font_title = load_font(str(font_path), 50)
-            font_subject = load_font(str(font_path), 55)
-            font_presenter = load_font(str(font_path), 26)
-            font_date = load_font(str(font_path), 25)
-
-            draw_centered_text(draw, data["number"], BOX_TOP_NUMBER, font_number, GOLD)
-            draw_centered_text(draw, data["title"], BOX_TOP_TITLE, font_title, GOLD)
-
-            lines = data["subject"].splitlines() or [""]
-            line_spacing = 60
-            total_height = len(lines) * line_spacing
-            start_y = BOX_MIDDLE["y"] - total_height / 2 + 30
-
-            for index, line in enumerate(lines):
-                box = BOX_MIDDLE.copy()
-                box["y"] = start_y + index * line_spacing
-                draw_centered_text(draw, line, box, font_subject, NAVY)
-
-            if selected_photo_bytes["value"]:
-                raw_photo = normalize_image_bytes(selected_photo_bytes["value"])
-                with Image.open(io.BytesIO(raw_photo)) as source:
-                    photo = ImageOps.exif_transpose(source.convert("RGBA"))
-                    photo.load()
-
-                target_w = BOX_PHOTO["w"]
-                target_h = BOX_PHOTO["h"]
-                photo.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
-
-                canvas = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
-                px = (target_w - photo.width) // 2
-                py = (target_h - photo.height) // 2
-                canvas.alpha_composite(photo, (px, py))
-
-                paste_x = int(BOX_PHOTO["x"] - target_w / 2)
-                paste_y = int(BOX_PHOTO["y"] - target_h / 2)
-                image.alpha_composite(canvas, (paste_x, paste_y))
-
-            presenter_lines = data["presenter"].splitlines() or [""]
-            presenter_spacing = 50
-            presenter_total = len(presenter_lines) * presenter_spacing
-            presenter_start_y = BOX_PRESENTER["y"] - presenter_total / 2 + 20
-
-            for index, line in enumerate(presenter_lines):
-                box = BOX_PRESENTER.copy()
-                box["y"] = presenter_start_y + index * presenter_spacing
-                draw_centered_text(draw, line, box, font_presenter, NAVY)
-
-            draw_centered_text(draw, data["date"], BOX_DATE, font_date, NAVY)
-
-            buffer = io.BytesIO()
-            image.convert("RGB").save(buffer, "JPEG", quality=95)
-            preview_bytes = buffer.getvalue()
-
-            preview_image.src = preview_bytes
-            preview_image.visible = True
-            preview_placeholder.visible = False
-            current_poster["bytes"] = preview_bytes
-            current_poster["path"] = None
-
-        except Exception as exc:
-            show_message(
-                f"خطا در پیش‌نمایش زنده: {exc}",
-                error=True,
-            )
-
     def set_preview(path: Path):
         try:
             image_bytes = read_poster_bytes(path)
@@ -716,447 +619,6 @@ def main(page: ft.Page):
         page.update()
 
     # ========================================================
-    # ویرایشگر حرفه‌ای کراپ ۳:۴
-    # بدون AlertDialog — به‌صورت یک صفحه مستقل در خود برنامه
-    # یک انگشت = جابه‌جایی
-    # دو انگشت = Pinch Zoom
-    # + / - و Slider = Zoom
-    # ========================================================
-    CROP_WIDTH = 300
-    CROP_HEIGHT = 400
-    CROP_RATIO = CROP_WIDTH / CROP_HEIGHT
-
-    crop_image = ft.Image(
-        src="",
-        width=CROP_WIDTH,
-        height=CROP_HEIGHT,
-        fit=ft.BoxFit.FILL,
-    )
-
-    crop_border = ft.Container(
-        width=CROP_WIDTH,
-        height=CROP_HEIGHT,
-        border=ft.Border.all(3, GOLD),
-        border_radius=8,
-        bgcolor="#00000000",
-    )
-
-    crop_canvas = ft.Stack(
-        controls=[crop_image, crop_border],
-        width=CROP_WIDTH,
-        height=CROP_HEIGHT,
-        clip_behavior=ft.ClipBehavior.HARD_EDGE,
-    )
-
-    crop_gesture = ft.GestureDetector(
-        drag_interval=12,
-        content=ft.Container(
-            width=CROP_WIDTH,
-            height=CROP_HEIGHT,
-            bgcolor="#171717",
-            alignment=ft.Alignment.CENTER,
-            content=crop_canvas,
-        ),
-    )
-
-    crop_zoom_slider = ft.Slider(
-        min=1.0,
-        max=4.0,
-        divisions=30,
-        value=1.0,
-        label="{value}×",
-        active_color=GOLD,
-    )
-
-    crop_zoom_text = ft.Text(
-        "۱٫۰×",
-        size=13,
-        color=GOLD,
-        text_align=ft.TextAlign.CENTER,
-    )
-
-    crop_tip = ft.Text(
-        "موبایل: دو انگشت را باز/بسته کنید • ویندوز: از + و − یا نوار استفاده کنید.",
-        size=10,
-        color=MUTED,
-        text_align=ft.TextAlign.CENTER,
-    )
-
-    crop_status = ft.Text(
-        "یک انگشت برای جابه‌جایی • دو انگشت برای بزرگ‌نمایی",
-        size=11,
-        color=MUTED,
-        text_align=ft.TextAlign.CENTER,
-    )
-
-    crop_file_name = ft.Text(
-        "",
-        size=11,
-        color=CREAM,
-        text_align=ft.TextAlign.CENTER,
-    )
-
-    def get_base_crop_size():
-        source = crop_state["source_image"]
-        if source is None:
-            return 0.0, 0.0
-
-        source_ratio = source.width / source.height
-        if source_ratio >= CROP_RATIO:
-            base_h = float(source.height)
-            base_w = base_h * CROP_RATIO
-        else:
-            base_w = float(source.width)
-            base_h = base_w / CROP_RATIO
-        return base_w, base_h
-
-    def get_current_crop_size():
-        base_w, base_h = get_base_crop_size()
-        zoom = max(1.0, min(4.0, float(crop_state["zoom"])))
-        return base_w / zoom, base_h / zoom
-
-    def clamp_crop_center():
-        source = crop_state["source_image"]
-        if source is None:
-            return
-
-        crop_w, crop_h = get_current_crop_size()
-        half_w = crop_w / 2.0
-        half_h = crop_h / 2.0
-
-        if source.width <= crop_w:
-            crop_state["center_x"] = source.width / 2.0
-        else:
-            crop_state["center_x"] = max(
-                half_w,
-                min(source.width - half_w, crop_state["center_x"]),
-            )
-
-        if source.height <= crop_h:
-            crop_state["center_y"] = source.height / 2.0
-        else:
-            crop_state["center_y"] = max(
-                half_h,
-                min(source.height - half_h, crop_state["center_y"]),
-            )
-
-    def get_crop_box():
-        source = crop_state["source_image"]
-        if source is None:
-            raise ValueError("تصویری برای کراپ وجود ندارد.")
-
-        clamp_crop_center()
-        crop_w, crop_h = get_current_crop_size()
-
-        left = int(round(crop_state["center_x"] - crop_w / 2.0))
-        top = int(round(crop_state["center_y"] - crop_h / 2.0))
-        right = int(round(crop_state["center_x"] + crop_w / 2.0))
-        bottom = int(round(crop_state["center_y"] + crop_h / 2.0))
-
-        left = max(0, left)
-        top = max(0, top)
-        right = min(source.width, right)
-        bottom = min(source.height, bottom)
-
-        if right <= left:
-            right = min(source.width, left + 1)
-        if bottom <= top:
-            bottom = min(source.height, top + 1)
-
-        return left, top, right, bottom
-
-    def render_crop_preview():
-        source = crop_state["source_image"]
-        if source is None:
-            return
-
-        left, top, right, bottom = get_crop_box()
-        cropped = source.crop((left, top, right, bottom))
-        cropped = ImageOps.fit(
-            cropped,
-            (CROP_WIDTH, CROP_HEIGHT),
-            method=Image.Resampling.LANCZOS,
-            centering=(0.5, 0.5),
-        )
-
-        output = io.BytesIO()
-        # PNG تا هم RGBA حفظ شود و هم خطای JPEG/RGBA رخ ندهد.
-        cropped.save(output, format="PNG", optimize=True)
-        crop_image.src = output.getvalue()
-
-        zoom_value = float(crop_state["zoom"])
-        crop_zoom_slider.value = zoom_value
-        crop_zoom_text.value = f"{zoom_value:.1f}×"
-        crop_status.value = (
-            f"زوم {zoom_value:.1f}×  •  کادر ثابت ۳:۴  •  "
-            "یک انگشت: جابه‌جایی"
-        )
-        page.update()
-
-    def prepare_crop(raw_bytes: bytes, file_name: str):
-        try:
-            source = Image.open(io.BytesIO(raw_bytes))
-            source = ImageOps.exif_transpose(source.convert("RGBA"))
-            source.load()
-
-            crop_state["original_bytes"] = raw_bytes
-            crop_state["source_image"] = source
-            crop_state["zoom"] = 1.0
-            crop_state["center_x"] = source.width / 2.0
-            crop_state["center_y"] = source.height / 2.0
-            crop_state["scale_active"] = False
-
-            crop_file_name.value = file_name
-            crop_zoom_slider.value = 1.0
-            render_crop_preview()
-            show_crop_editor()
-
-        except Exception as exc:
-            show_message(
-                f"خطا در آماده‌سازی عکس برای کراپ: {exc}",
-                error=True,
-            )
-
-    def set_crop_zoom(new_zoom: float):
-        crop_state["zoom"] = max(1.0, min(4.0, float(new_zoom)))
-        clamp_crop_center()
-        render_crop_preview()
-
-    def change_crop_zoom(amount: float):
-        set_crop_zoom(float(crop_state["zoom"]) + amount)
-
-    def on_crop_zoom_change(e):
-        set_crop_zoom(float(crop_zoom_slider.value or 1.0))
-
-    crop_zoom_slider.on_change = on_crop_zoom_change
-
-    # ---------------- Drag یک انگشتی ----------------
-    def crop_pan_update(e: ft.DragUpdateEvent):
-        if crop_state["source_image"] is None:
-            return
-        if crop_state["scale_active"]:
-            return
-
-        crop_w, crop_h = get_current_crop_size()
-        crop_state["center_x"] -= (e.local_delta.x / CROP_WIDTH) * crop_w
-        crop_state["center_y"] -= (e.local_delta.y / CROP_HEIGHT) * crop_h
-        clamp_crop_center()
-        render_crop_preview()
-
-    crop_gesture.on_pan_update = crop_pan_update
-
-    # ---------------- Pinch دو انگشتی ----------------
-    def crop_scale_start(e: ft.ScaleStartEvent):
-        crop_state["scale_active"] = True
-        crop_state["pinch_start_zoom"] = float(crop_state["zoom"])
-        crop_state["pinch_start_center_x"] = float(crop_state["center_x"])
-        crop_state["pinch_start_center_y"] = float(crop_state["center_y"])
-        crop_state["pinch_start_crop_w"], crop_state["pinch_start_crop_h"] = get_current_crop_size()
-
-    def crop_scale_update(e: ft.ScaleUpdateEvent):
-        if crop_state["source_image"] is None:
-            return
-
-        scale_factor = float(getattr(e, "scale", 1.0) or 1.0)
-        new_zoom = crop_state["pinch_start_zoom"] * scale_factor
-        new_zoom = max(1.0, min(4.0, new_zoom))
-
-        focal = getattr(e, "local_focal_point", None)
-        if focal is None:
-            focal = getattr(e, "focal_point", None)
-
-        if focal is None:
-            focal_x = CROP_WIDTH / 2.0
-            focal_y = CROP_HEIGHT / 2.0
-        else:
-            focal_x = float(focal.x)
-            focal_y = float(focal.y)
-
-        old_w = crop_state["pinch_start_crop_w"]
-        old_h = crop_state["pinch_start_crop_h"]
-        old_left = crop_state["pinch_start_center_x"] - old_w / 2.0
-        old_top = crop_state["pinch_start_center_y"] - old_h / 2.0
-
-        rx = max(0.0, min(1.0, focal_x / CROP_WIDTH))
-        ry = max(0.0, min(1.0, focal_y / CROP_HEIGHT))
-
-        point_x = old_left + rx * old_w
-        point_y = old_top + ry * old_h
-
-        crop_state["zoom"] = new_zoom
-        new_w, new_h = get_current_crop_size()
-        crop_state["center_x"] = point_x - (rx - 0.5) * new_w
-        crop_state["center_y"] = point_y - (ry - 0.5) * new_h
-
-        delta = getattr(e, "focal_point_delta", None)
-        if delta is not None:
-            crop_state["center_x"] -= (delta.x / CROP_WIDTH) * new_w
-            crop_state["center_y"] -= (delta.y / CROP_HEIGHT) * new_h
-
-        clamp_crop_center()
-        render_crop_preview()
-
-    def crop_scale_end(e: ft.ScaleEndEvent):
-        crop_state["scale_active"] = False
-
-    crop_gesture.on_scale_start = crop_scale_start
-    crop_gesture.on_scale_update = crop_scale_update
-    crop_gesture.on_scale_end = crop_scale_end
-
-    def get_cropped_photo_bytes() -> bytes:
-        source = crop_state["source_image"]
-        if source is None:
-            raise ValueError("تصویری برای کراپ وجود ندارد.")
-
-        left, top, right, bottom = get_crop_box()
-        cropped = source.crop((left, top, right, bottom))
-        cropped = ImageOps.fit(
-            cropped,
-            (600, 800),
-            method=Image.Resampling.LANCZOS,
-            centering=(0.5, 0.5),
-        )
-
-        output = io.BytesIO()
-        cropped.save(output, format="PNG", optimize=True)
-        return output.getvalue()
-
-    # ---------------- دکمه‌های واقعی صفحه کراپ ----------------
-    def accept_crop(e=None):
-        try:
-            selected_photo_bytes["value"] = get_cropped_photo_bytes()
-            txt_photo_status.value = "عکس کراپ‌شدهٔ ۳×۴ تأیید شد."
-            txt_photo_status.color = SUCCESS
-            status_text.value = "کراپ تأیید شد و پیش‌نمایش زنده به‌روزرسانی شد."
-            status_text.color = SUCCESS
-
-            show_main_editor()
-            render_live_preview()
-            page.update()
-        except Exception as exc:
-            crop_status.value = f"خطا در اعمال کراپ: {exc}"
-            crop_status.color = DANGER
-            page.update()
-
-    def cancel_crop(e=None):
-        # انتخاب جدید هنوز اعمال نشده؛ عکس قبلی حفظ می‌شود.
-        crop_state["source_image"] = None
-        crop_state["original_bytes"] = None
-        show_main_editor()
-        status_text.value = "کراپ لغو شد؛ عکس قبلی حفظ شد."
-        status_text.color = MUTED
-        page.update()
-
-    btn_crop_cancel = ft.Button(
-        content="انصراف",
-        icon=ft.Icons.CLOSE,
-        on_click=cancel_crop,
-    )
-
-    btn_crop_apply = ft.Button(
-        content="تأیید و اعمال",
-        icon=ft.Icons.CHECK,
-        on_click=accept_crop,
-        style=ft.ButtonStyle(
-            bgcolor=SUCCESS,
-            color=BG,
-        ),
-    )
-
-    # --------------------------------------------------------
-    # خود صفحه کراپ — دکمه‌ها داخل صفحه و نه در Dialog
-    # --------------------------------------------------------
-    crop_editor_view = ft.Container(
-        padding=16,
-        bgcolor=BG,
-        content=ft.Column(
-            controls=[
-                ft.Row(
-                    controls=[
-                        ft.Button(
-                            content="بازگشت",
-                            icon=ft.Icons.ARROW_BACK,
-                            on_click=cancel_crop,
-                        ),
-                        ft.Container(expand=True),
-                        ft.Text(
-                            "برش عکس",
-                            size=22,
-                            weight=ft.FontWeight.BOLD,
-                            color=CREAM,
-                        ),
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                ft.Container(
-                    padding=10,
-                    bgcolor=PANEL_2,
-                    border_radius=14,
-                    content=ft.Column(
-                        controls=[
-                            ft.Text(
-                                "کادر ثابت ۳ : ۴",
-                                size=15,
-                                weight=ft.FontWeight.BOLD,
-                                color=GOLD,
-                                text_align=ft.TextAlign.CENTER,
-                            ),
-                            crop_file_name,
-                            ft.Text(
-                                "عکس را داخل کادر جابه‌جا کنید",
-                                size=11,
-                                color=MUTED,
-                                text_align=ft.TextAlign.CENTER,
-                            ),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=3,
-                    ),
-                ),
-                ft.Container(
-                    expand=False,
-                    alignment=ft.Alignment.CENTER,
-                    content=crop_gesture,
-                ),
-                crop_tip,
-                ft.Row(
-                    controls=[
-                        ft.Button(
-                            content="−",
-                            on_click=lambda e: change_crop_zoom(-0.1),
-                        ),
-                        ft.Container(
-                            expand=True,
-                            content=crop_zoom_slider,
-                        ),
-                        ft.Button(
-                            content="+",
-                            on_click=lambda e: change_crop_zoom(0.1),
-                        ),
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                crop_zoom_text,
-                crop_status,
-                ft.Container(
-                    padding=ft.Padding.symmetric(vertical=8),
-                    content=ft.Row(
-                        controls=[btn_crop_cancel, btn_crop_apply],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        spacing=14,
-                    ),
-                ),
-            ],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=10,
-            scroll=ft.ScrollMode.AUTO,
-        ),
-    )
-
-    # ========================================================
-    # انتخاب عکس
-    # ========================================================
-    # ========================================================
     # انتخاب عکس
     # ========================================================
     def handle_photo_result(e: ft.FilePickerResultEvent):
@@ -1164,29 +626,33 @@ def main(page: ft.Page):
             return
 
         selected = e.files[0]
-        raw_value = None
+        selected_photo_bytes["value"] = None
 
         try:
             if selected.bytes:
-                raw_value = normalize_image_bytes(selected.bytes)
+                selected_photo_bytes["value"] = normalize_image_bytes(selected.bytes)
         except Exception:
-            raw_value = None
+            selected_photo_bytes["value"] = None
 
-        if not raw_value and getattr(selected, "path", None):
+        if not selected_photo_bytes["value"] and getattr(selected, "path", None):
             try:
                 with open(selected.path, "rb") as f:
-                    raw_value = normalize_image_bytes(f.read())
+                    selected_photo_bytes["value"] = normalize_image_bytes(f.read())
             except Exception:
-                raw_value = None
+                selected_photo_bytes["value"] = None
 
-        if not raw_value:
+        if not selected_photo_bytes["value"]:
             show_message(
                 "فقط عکس ثابت JPG، PNG یا WEBP قابل استفاده است؛ GIF و ویدیو مجاز نیست.",
                 error=True,
             )
             return
 
-        prepare_crop(raw_value, selected.name)
+        txt_photo_status.value = f"انتخاب شد: {selected.name}"
+        txt_photo_status.color = SUCCESS
+        status_text.value = "عکس آماده ساخت پوستر است"
+        status_text.color = MUTED
+        page.update()
 
     file_picker.on_result = handle_photo_result
 
@@ -1208,7 +674,6 @@ def main(page: ft.Page):
         txt_date.value = today_jalali_text()
         status_text.value = "تاریخ امروز وارد شد"
         status_text.color = MUTED
-        render_live_preview()
         page.update()
 
     btn_today = ft.Button(
@@ -1227,11 +692,6 @@ def main(page: ft.Page):
         txt_presenter.value = ""
         txt_date.value = ""
         selected_photo_bytes["value"] = None
-        crop_state["original_bytes"] = None
-        crop_state["source_image"] = None
-        crop_state["center_x"] = 0.0
-        crop_state["center_y"] = 0.0
-        crop_state["zoom"] = 1.0
         txt_photo_status.value = "عکسی انتخاب نشده"
         txt_photo_status.color = MUTED
         status_text.value = "فرم خالی شد"
@@ -1335,6 +795,19 @@ def main(page: ft.Page):
     )
 
     # ========================================================
+    # داده‌های متون واردشده توسط کاربر
+    # این تابع عمداً قبل از share_current تعریف شده است.
+    # ========================================================
+    def get_session_data():
+        return {
+            "number": txt_number.value or "",
+            "title": txt_title.value or "",
+            "subject": txt_subject.value or "",
+            "presenter": txt_presenter.value or "",
+            "date": txt_date.value or "",
+        }
+
+    # ========================================================
     # اشتراک‌گذاری
     # ========================================================
     async def share_current(e):
@@ -1360,16 +833,16 @@ def main(page: ft.Page):
                 mime_type="image/jpeg",
                 name="poster.jpg",
             )
-            data = get_session_data()
-            text_message = f'''{data['number'] + data['title']}
+            session_data = get_session_data()
+            text_message = f'''{session_data['number'] + session_data['title']}
 
 با موضوع 
-{data['subject']}
+{session_data['subject']}
 
 در محضر 
-{data["presenter"]}
+{session_data["presenter"]}
 
-{data['date']}
+{session_data['date']}
 
 https://eitaa.com/shfeghhi
 https://t.me/shfeghhi'''
@@ -1500,87 +973,31 @@ https://t.me/shfeghhi'''
     )
 
     # ========================================================
-    # فعال‌سازی پیش‌نمایش زنده
-    # ========================================================
-    def live_field_changed(e):
-        render_live_preview()
-
-    for _control in (
-            txt_number,
-            txt_title,
-            txt_subject,
-            txt_presenter,
-            txt_date,
-    ):
-        _control.on_change = live_field_changed
-
-    # ========================================================
-    # صفحه‌های برنامه
-    # ========================================================
-    main_content = ft.Container(
-        bgcolor=BG,
-        padding=0,
-        content=ft.Column(
-            [
-                preview_panel,
-                form_panel,
-                ft.Divider(color="#1C3430", height=18),
-                gallery_title,
-                saved_gallery,
-            ],
-            spacing=12,
-        ),
-    )
-
-    def show_main_editor():
-        main_content.content = ft.Column(
-            [
-                preview_panel,
-                form_panel,
-                ft.Divider(color="#1C3430", height=18),
-                gallery_title,
-                saved_gallery,
-            ],
-            spacing=12,
-        )
-        page.update()
-
-    def show_crop_editor():
-        main_content.content = crop_editor_view
-        page.update()
-
-    # ========================================================
-    # فعال‌سازی پیش‌نمایش زنده
-    # ========================================================
-    def live_field_changed(e):
-        render_live_preview()
-
-    for _control in (
-        txt_number,
-        txt_title,
-        txt_subject,
-        txt_presenter,
-        txt_date,
-    ):
-        _control.on_change = live_field_changed
-
-    # ========================================================
-    # صفحه
+    # صفحه موبایل
     # ========================================================
     page.add(
         ft.Column(
-            controls=[header, main_content],
+            [
+                header,
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=12),
+                    content=ft.Column(
+                        [
+                            preview_panel,
+                            form_panel,
+                            ft.Divider(color="#1C3430", height=18),
+                            gallery_title,
+                            saved_gallery,
+                        ],
+                        spacing=12,
+                    ),
+                ),
+            ],
             spacing=0,
-            expand=False,
         )
     )
 
-    render_live_preview()
     refresh_gallery()
-
-
 
 if __name__ == "__main__":
     ft.run(main, assets_dir="assets")
-
-
