@@ -1,0 +1,102 @@
+name: Build Flet APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. دریافت پروژه
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3. Java
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      # 4. Flutter
+      - name: Setup Flutter 3.44.8
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.8"
+          channel: "stable"
+          cache: true
+
+      # 5. بررسی Flutter
+      - name: Check Flutter
+        run: |
+          flutter --version
+
+      # 6. بررسی فایل‌های وابستگی
+      - name: Check dependencies
+        run: |
+          echo "===== requirements.txt ====="
+          cat requirements.txt
+
+          echo "===== pyproject.toml ====="
+          cat pyproject.toml
+
+          echo "===== Check old Pillow version ====="
+
+          if grep -n "Pillow==10.4.0" requirements.txt 2>/dev/null; then
+            echo "ERROR: requirements.txt هنوز Pillow 10.4.0 دارد."
+            exit 1
+          fi
+
+          if grep -n "Pillow==10.4.0" pyproject.toml 2>/dev/null; then
+            echo "ERROR: pyproject.toml هنوز Pillow 10.4.0 دارد."
+            exit 1
+          fi
+
+          echo "Dependency check passed."
+
+      # 7. نصب Flet CLI
+      - name: Install Flet CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install flet-cli==1.0.0
+
+      # 8. بررسی Flet
+      - name: Check Flet
+        run: |
+          flet --version
+
+      # 9. پاک‌سازی
+      - name: Clean Flet build
+        run: |
+          flet clean || true
+          rm -rf build
+
+      # 10. ساخت APK
+      - name: Build APK
+        run: |
+          flet build apk \
+            --verbose \
+            --no-rich-output \
+            --yes \
+            --skip-flutter-doctor
+
+      # 11. آپلود APK
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PousterCreator-APK
+          path: build/apk/**
+          if-no-files-found: error

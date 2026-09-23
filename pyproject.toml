@@ -1,0 +1,23 @@
+[project]
+name = "pouster_creator"
+version = "2.0.0"
+description = "ساخت پوستر جلسات فقهی"
+
+dependencies = [
+    "flet==1.0.0",
+    "Pillow==12.2.0",
+    "arabic-reshaper==3.0.1",
+    "python-bidi==0.4.2",
+]
+
+[tool.flet]
+product = "پوستر ساز جلسات"
+org = "com.poustercreator"
+company = "PousterCreator"
+
+[tool.flet.app]
+path = "."
+
+[tool.flet.android.permission]
+"android.permission.READ_MEDIA_IMAGES" = true
+"android.permission.READ_EXTERNAL_STORAGE" = true

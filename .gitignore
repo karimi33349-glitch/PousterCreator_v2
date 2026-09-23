@@ -1,0 +1,14 @@
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+output/
+build/
+dist/
+.DS_Store
+Thumbs.db
+create_icon.py
